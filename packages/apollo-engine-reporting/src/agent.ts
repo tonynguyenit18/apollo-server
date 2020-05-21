@@ -11,6 +11,8 @@ import {
   Trace,
   Report,
   TracesAndStats,
+  IStatsContext,
+  ContextualizedStats as ContextualizedStatsProto,
 } from 'apollo-engine-reporting-protobuf';
 
 import { fetch, RequestAgent, Response } from 'apollo-server-env';
@@ -29,6 +31,8 @@ import { ApolloServerPlugin } from 'apollo-server-plugin-base';
 import { reportingLoop, SchemaReporter } from './schemaReporter';
 import { v4 as uuidv4 } from 'uuid';
 import { createHash } from 'crypto';
+import { DurationHistogram } from './durationHistogram';
+import { ContextualizedStats } from './ContextualizedStats';
 
 let warnedOnDeprecatedApiKey = false;
 
@@ -401,6 +405,12 @@ export interface AddTraceArgs {
   logger: Logger;
 }
 
+interface TraceCacheKey {
+  statsReportKey: string;
+  statsBucket: number;
+  endsAtMinute: Number;
+}
+
 const serviceHeaderDefaults = {
   hostname: os.hostname(),
   agentVersion: `apollo-engine-reporting@${require('../package.json').version}`,
@@ -412,6 +422,7 @@ const serviceHeaderDefaults = {
 class ReportData {
   report!: Report;
   size!: number;
+  traceCache: Map<TraceCacheKey, boolean> = new Map<TraceCacheKey, boolean>();
   readonly header: ReportHeader;
   constructor(executableSchemaId: string, graphVariant: string) {
     this.header = new ReportHeader({
@@ -424,6 +435,7 @@ class ReportData {
   reset() {
     this.report = new Report({ header: this.header });
     this.size = 0;
+    this.traceCache = new Map<TraceCacheKey, boolean>();
   }
 }
 
@@ -618,12 +630,6 @@ export class EngineReportingAgent<TContext = any> {
     const reportData = this.getReportData(executableSchemaId);
     const { report } = reportData;
 
-    const protobufError = Trace.verify(trace);
-    if (protobufError) {
-      throw new Error(`Error encoding trace: ${protobufError}`);
-    }
-    const encodedTrace = Trace.encode(trace).finish();
-
     const signature = await this.getTraceSignature({
       queryHash,
       document,
@@ -633,16 +639,16 @@ export class EngineReportingAgent<TContext = any> {
     });
 
     const statsReportKey = `# ${operationName || '-'}\n${signature}`;
+
     if (!report.tracesPerQuery.hasOwnProperty(statsReportKey)) {
       report.tracesPerQuery[statsReportKey] = new TracesAndStats();
       (report.tracesPerQuery[statsReportKey] as any).encodedTraces = [];
+      (report.tracesPerQuery[statsReportKey] as any).statsMap = new Map<
+        IStatsContext,
+        ContextualizedStats
+      >();
     }
-    // See comment on our override of Traces.encode inside of
-    // apollo-engine-reporting-protobuf to learn more about this strategy.
-    (report.tracesPerQuery[statsReportKey] as any).encodedTraces.push(
-      encodedTrace,
-    );
-    reportData.size += encodedTrace.length + Buffer.byteLength(statsReportKey);
+
 
     // If the buffer gets big (according to our estimate), send.
     if (
@@ -651,6 +657,62 @@ export class EngineReportingAgent<TContext = any> {
         (this.options.maxUncompressedReportSize || 4 * 1024 * 1024)
     ) {
       await this.sendReportAndReportErrors(executableSchemaId);
+
+      const traceCacheKey = {
+        statsReportKey,
+        statsBucket: DurationHistogram.durationToBucket(trace.durationNs),
+        endsAtMinute:
+          ((trace && trace.endTime && trace.endTime.seconds) || 0) % 60,
+      };
+
+      const convertTraceToStats =
+        reportData.traceCache.get(traceCacheKey) === true;
+
+      if (convertTraceToStats) {
+        const statsContext: IStatsContext = {
+          clientName: trace.clientName,
+          clientVersion: trace.clientVersion,
+          clientReferenceId: trace.clientReferenceId,
+        };
+
+        // TODO: Update sizing
+        let contextualizedStats: ContextualizedStats =
+          (report.tracesPerQuery[statsReportKey] as any).statsMap.get(
+            statsContext,
+          );
+
+        if (!contextualizedStats) {
+          contextualizedStats = new ContextualizedStats(statsContext);
+          (report.tracesPerQuery[statsReportKey] as any).statsMap.set(
+            statsContext,
+            contextualizedStats
+          );
+        }
+
+        contextualizedStats.addTrace(trace);
+      } else {
+        const protobufError = Trace.verify(trace);
+        if (protobufError) {
+          throw new Error(`Error encoding trace: ${protobufError}`);
+        }
+        const encodedTrace = Trace.encode(trace).finish();
+
+        // See comment on our override of Traces.encode inside of
+        // apollo-engine-reporting-protobuf to learn more about this strategy.
+        (report.tracesPerQuery[statsReportKey] as any).encodedTraces.push(
+          encodedTrace,
+        );
+        reportData.size += encodedTrace.length + Buffer.byteLength(statsReportKey);
+      }
+
+        // If the buffer gets big (according to our estimate), send.
+        if (
+          this.sendReportsImmediately ||
+          reportData.size >=
+          (this.options.maxUncompressedReportSize || 4 * 1024 * 1024)
+        ) {
+          await this.sendReportAndReportErrors(executableSchemaId);
+        }
     }
   }
 
@@ -687,6 +749,21 @@ export class EngineReportingAgent<TContext = any> {
       this.logger.warn(
         `Engine sending report: ${JSON.stringify(report.toJSON())}`,
       );
+    }
+
+    const statsKeys = Object.keys(report.tracesPerQuery);
+    for (const statsKey of statsKeys) {
+      const statsMap: Map<IStatsContext, ContextualizedStats> = (report.tracesPerQuery[statsKey] as any).statsMap;
+      if (statsMap) {
+        let statsWithContext = report.tracesPerQuery[statsKey].statsWithContext
+        if (!statsWithContext) {
+          statsWithContext = new Array<ContextualizedStatsProto>()
+          report.tracesPerQuery[statsKey].statsWithContext = statsWithContext;
+        }
+        for (const statWithContext of statsMap.values()) {
+          statsWithContext.push(statWithContext.toProto());
+        }
+      }
     }
 
     const protobufError = Report.verify(report);
