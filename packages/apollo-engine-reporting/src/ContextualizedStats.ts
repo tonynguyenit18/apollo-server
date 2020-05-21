@@ -4,13 +4,13 @@ import {
   Trace,
   TypeStat,
   QueryLatencyStats,
-  IPathErrorStats
+  IPathErrorStats,
 } from 'apollo-engine-reporting-protobuf';
 
 export class ContextualizedStats {
   statsContext: IStatsContext;
   queryLatencyStats: QueryLatencyStats;
-  perTypeStat: ({ [k: string]: TypeStat });
+  perTypeStat: { [k: string]: TypeStat };
 
   constructor(statsContext: IStatsContext) {
     this.statsContext = statsContext;
@@ -35,19 +35,23 @@ export class ContextualizedStats {
     const queryLatencyStats = this.queryLatencyStats;
     queryLatencyStats.requestCount++;
     if (trace.fullQueryCacheHit) {
-      (queryLatencyStats.cacheLatencyCount as unknown as DurationHistogram).incrementDuration(trace.durationNs);
+      ((queryLatencyStats.cacheLatencyCount as unknown) as DurationHistogram).incrementDuration(
+        trace.durationNs,
+      );
       queryLatencyStats.cacheHits++;
     } else {
-      (queryLatencyStats.latencyCount as unknown as DurationHistogram).incrementDuration(trace.durationNs);
+      ((queryLatencyStats.latencyCount as unknown) as DurationHistogram).incrementDuration(
+        trace.durationNs,
+      );
     }
 
     if (!trace.fullQueryCacheHit && trace.cachePolicy && trace.cachePolicy) {
       if (trace.cachePolicy.scope == Trace.CachePolicy.Scope.PRIVATE) {
-        (queryLatencyStats.privateCacheTtlCount as unknown as DurationHistogram).incrementDuration(
+        ((queryLatencyStats.privateCacheTtlCount as unknown) as DurationHistogram).incrementDuration(
           trace.cachePolicy.maxAgeNs || 0,
         );
       } else if (trace.cachePolicy.scope == Trace.CachePolicy.Scope.PUBLIC) {
-        (queryLatencyStats.publicCacheTtlCount as unknown as DurationHistogram).incrementDuration(
+        ((queryLatencyStats.publicCacheTtlCount as unknown) as DurationHistogram).incrementDuration(
           trace.cachePolicy.maxAgeNs || 0,
         );
       }
@@ -69,7 +73,7 @@ export class ContextualizedStats {
 
     let hasError = false;
     const typeStats = this.perTypeStat;
-    const rootPathErrorStats = (queryLatencyStats.rootErrorStats as IPathErrorStats);
+    const rootPathErrorStats = queryLatencyStats.rootErrorStats as IPathErrorStats;
 
     function traceNodeStats(node: Trace.INode, path: ReadonlyArray<string>) {
       if (node.error && node.error.length > 0) {
@@ -78,22 +82,24 @@ export class ContextualizedStats {
         let currPathErrorStats: IPathErrorStats = rootPathErrorStats;
 
         for (const subPath of path.values()) {
-
           let children = currPathErrorStats.children;
           if (!children) {
             children = Object.create(null);
-            currPathErrorStats.children = children
+            currPathErrorStats.children = children;
           }
 
           // Children cannot be null or undefined be null or undefined
-          let nextPathErrorStats = (children as  { [k: string]: IPathErrorStats })[subPath];
+          let nextPathErrorStats = (children as {
+            [k: string]: IPathErrorStats;
+          })[subPath];
           if (!nextPathErrorStats) {
-            nextPathErrorStats = Object.create(null)
-            (children as  { [k: string]: IPathErrorStats })[subPath] = nextPathErrorStats;
+            nextPathErrorStats = Object.create(null)(
+              children as { [k: string]: IPathErrorStats },
+            )[subPath] = nextPathErrorStats;
           }
 
           // nextPathErrorStats be null or undefined
-          currPathErrorStats = (nextPathErrorStats as IPathErrorStats);
+          currPathErrorStats = nextPathErrorStats as IPathErrorStats;
         }
         currPathErrorStats.requestsWithErrorsCount =
           (currPathErrorStats.requestsWithErrorsCount || 0) + 1;
@@ -123,17 +129,27 @@ export class ContextualizedStats {
             returnType: node.type,
             errorsCount: (node.error && node.error.length) || 0,
             count: 1,
-            // Is this correct can we repeat a field multiple times
-            requestsWithErrorsCount: (node.error && node.error.length > 0) ? 1 : 0,
+            requestsWithErrorsCount:
+              node.error && node.error.length > 0 ? 1 : 0,
             latencyCount: durationHistogram,
           };
-          typeStat.perFieldStat[node.originalFieldName] =  fieldStat;
+          typeStat.perFieldStat[node.originalFieldName] = fieldStat;
         } else {
           // We only create the object in the above line so we can know they aren't null
-          (fieldStat.errorsCount as number) = (node.error && node.error.length) || 0;
+          (fieldStat.errorsCount as number) =
+            (node.error && node.error.length) || 0;
           (fieldStat.count as number)++;
-          (fieldStat.requestsWithErrorsCount as number) += (node.error && node.error.length > 0) ?  1 : 0;
-          (fieldStat.latencyCount as unknown as DurationHistogram).incrementDuration(duration);
+          // Note: this is actually counting the number of resolver calls for this
+          // field that had at least one error, not the number of overall GraphQL
+          // queries that had at least one error for this field. That doesn't seem
+          // to match the name, but it does match the Go engineproxy implementation.
+          // (Well, actually the Go engineproxy implementation is even buggier because
+          // it counts errors multiple times if multiple resolvers have the same path.)
+          (fieldStat.requestsWithErrorsCount as number) +=
+            node.error && node.error.length > 0 ? 1 : 0;
+          ((fieldStat.latencyCount as unknown) as DurationHistogram).incrementDuration(
+            duration,
+          );
         }
       }
     }
@@ -176,7 +192,11 @@ function iterateOverQueryPlan(
     node.fetch.trace.root &&
     node.fetch.serviceName
   ) {
-    iterateOverTraceNode(node.fetch.trace.root, [`service:${node.fetch.serviceName}`], f);
+    iterateOverTraceNode(
+      node.fetch.trace.root,
+      [`service:${node.fetch.serviceName}`],
+      f,
+    );
   } else if (node.flatten) {
     iterateOverQueryPlan(node.flatten.node, f);
   } else if (node.parallel && node.parallel.nodes) {
