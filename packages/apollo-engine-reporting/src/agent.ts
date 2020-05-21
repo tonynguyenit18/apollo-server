@@ -12,7 +12,7 @@ import {
   Report,
   TracesAndStats,
   IStatsContext,
-  ContextualizedStats as ContextualizedStatsProto,
+  IContextualizedStats,
 } from 'apollo-engine-reporting-protobuf';
 
 import { fetch, RequestAgent, Response } from 'apollo-server-env';
@@ -748,11 +748,11 @@ export class EngineReportingAgent<TContext = any> {
       if (statsMap) {
         let statsWithContext = report.tracesPerQuery[statsKey].statsWithContext;
         if (!statsWithContext) {
-          statsWithContext = new Array<ContextualizedStatsProto>();
+          statsWithContext = new Array<IContextualizedStats>();
           report.tracesPerQuery[statsKey].statsWithContext = statsWithContext;
         }
         for (const statWithContext of statsMap.values()) {
-          statsWithContext.push(statWithContext.toProto());
+          statsWithContext.push(statWithContext);
         }
       }
     }

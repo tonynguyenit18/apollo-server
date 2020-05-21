@@ -325,7 +325,7 @@ message FieldStat {
 	uint64 errors_count = 4;
 	uint64 count = 5;
 	uint64 requests_with_errors_count = 6;
-	repeated int64 latency_count = 8; // Duration histogram; see docs/histograms.md
+	repeated int64 latency_count = 8 [(js_use_toArray)=true]; // Duration histogram; see docs/histograms.md
 	reserved 1, 2, 7;
 }
 

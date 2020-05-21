@@ -2,28 +2,15 @@ import { DurationHistogram } from './durationHistogram';
 import {
   IStatsContext,
   Trace,
-  IPathErrorStats,
-  ContextualizedStats as ContextualizedStatsProto,
-  ITypeStat as TypeStatProto,
-  IFieldStat as FieldStatProto,
-  IQueryLatencyStats,
+  TypeStat,
   QueryLatencyStats,
+  IPathErrorStats
 } from 'apollo-engine-reporting-protobuf';
 
-export interface FieldStat {
-  returnType: string;
-  errorsCount: number;
-  count: number;
-  requestsWithErrorsCount: number;
-  latencyCount: DurationHistogram;
-}
 export class ContextualizedStats {
   statsContext: IStatsContext;
   queryLatencyStats: QueryLatencyStats;
-  perTypeStat: Map<string, Map<string, FieldStat>> = new Map<
-    string,
-    Map<string, FieldStat>
-  >();
+  perTypeStat: ({ [k: string]: TypeStat });
 
   constructor(statsContext: IStatsContext) {
     this.statsContext = statsContext;
@@ -35,32 +22,32 @@ export class ContextualizedStats {
       persistedQueryMisses: 0,
       cacheLatencyCount: new DurationHistogram(),
       rootErrorStats: Object.create(null),
-      requestsWithErrorCount: 0,
+      requestsWithErrorsCount: 0,
       publicCacheTtlCount: new DurationHistogram(),
       privateCacheTtlCount: new DurationHistogram(),
       registeredOperationCount: 0,
       forbiddenOperationCount: 0,
     });
+    this.perTypeStat = Object.create(null);
   }
 
   public addTrace(trace: Trace) {
-
     const queryLatencyStats = this.queryLatencyStats;
     queryLatencyStats.requestCount++;
     if (trace.fullQueryCacheHit) {
-      queryLatencyStats.cacheLatencyCount.incrementDuration(trace.durationNs);
+      (queryLatencyStats.cacheLatencyCount as unknown as DurationHistogram).incrementDuration(trace.durationNs);
       queryLatencyStats.cacheHits++;
     } else {
-      queryLatencyStats.latencyCount.incrementDuration(trace.durationNs);
+      (queryLatencyStats.latencyCount as unknown as DurationHistogram).incrementDuration(trace.durationNs);
     }
 
     if (!trace.fullQueryCacheHit && trace.cachePolicy && trace.cachePolicy) {
       if (trace.cachePolicy.scope == Trace.CachePolicy.Scope.PRIVATE) {
-        queryLatencyStats.privateCacheTtlCount.incrementDuration(
+        (queryLatencyStats.privateCacheTtlCount as unknown as DurationHistogram).incrementDuration(
           trace.cachePolicy.maxAgeNs || 0,
         );
       } else if (trace.cachePolicy.scope == Trace.CachePolicy.Scope.PUBLIC) {
-        queryLatencyStats.publicCacheTtlCount.incrementDuration(
+        (queryLatencyStats.publicCacheTtlCount as unknown as DurationHistogram).incrementDuration(
           trace.cachePolicy.maxAgeNs || 0,
         );
       }
@@ -78,25 +65,35 @@ export class ContextualizedStats {
       queryLatencyStats.registeredOperationCount++;
     }
 
-    queryLatencyStats.requestsWithErrorCount++;
+    queryLatencyStats.requestsWithErrorsCount++;
 
     let hasError = false;
     const typeStats = this.perTypeStat;
-    const rootPathErrorStats = queryLatencyStats.rootErrorStats;
+    const rootPathErrorStats = (queryLatencyStats.rootErrorStats as IPathErrorStats);
 
     function traceNodeStats(node: Trace.INode, path: ReadonlyArray<string>) {
       if (node.error && node.error.length > 0) {
         hasError = true;
-        let currPathErrorStats = rootPathErrorStats;
+
+        let currPathErrorStats: IPathErrorStats = rootPathErrorStats;
+
         for (const subPath of path.values()) {
-          if (!currPathErrorStats.children) {
-            currPathErrorStats.children = Object.create(null);
+
+          let children = currPathErrorStats.children;
+          if (!children) {
+            children = Object.create(null);
+            currPathErrorStats.children = children
           }
 
-          // Ts doesn't seem to get that children isn't null after we set it???
-          if (currPathErrorStats.children) {
-            currPathErrorStats = currPathErrorStats.children[subPath];
+          // Children cannot be null or undefined be null or undefined
+          let nextPathErrorStats = (children as  { [k: string]: IPathErrorStats })[subPath];
+          if (!nextPathErrorStats) {
+            nextPathErrorStats = Object.create(null)
+            (children as  { [k: string]: IPathErrorStats })[subPath] = nextPathErrorStats;
           }
+
+          // nextPathErrorStats be null or undefined
+          currPathErrorStats = (nextPathErrorStats as IPathErrorStats);
         }
         currPathErrorStats.requestsWithErrorsCount =
           (currPathErrorStats.requestsWithErrorsCount || 0) + 1;
@@ -111,13 +108,13 @@ export class ContextualizedStats {
         node.endTime &&
         node.startTime
       ) {
-        let typeStat = typeStats.get(node.parentType);
+        let typeStat = typeStats[node.parentType];
         if (!typeStat) {
-          typeStat = new Map<string, FieldStat>();
-          typeStats.set(node.parentType, typeStat);
+          typeStat = new TypeStat();
+          typeStats[node.parentType] = typeStat;
         }
 
-        let fieldStat = typeStat.get(node.originalFieldName);
+        let fieldStat = typeStat.perFieldStat[node.originalFieldName];
         const duration = node.endTime - node.startTime;
         if (!fieldStat) {
           const durationHistogram = new DurationHistogram();
@@ -126,72 +123,25 @@ export class ContextualizedStats {
             returnType: node.type,
             errorsCount: (node.error && node.error.length) || 0,
             count: 1,
-            requestsWithErrorsCount: hasError ? 1 : 0,
+            // Is this correct can we repeat a field multiple times
+            requestsWithErrorsCount: (node.error && node.error.length > 0) ? 1 : 0,
             latencyCount: durationHistogram,
           };
-          typeStat.set(node.originalFieldName, fieldStat);
+          typeStat.perFieldStat[node.originalFieldName] =  fieldStat;
         } else {
-          fieldStat.errorsCount += (node.error && node.error.length) || 0;
-          fieldStat.count++;
-          fieldStat.requestsWithErrorsCount += hasError ? 1 : 0;
-          fieldStat.latencyCount.incrementDuration(duration);
+          // We only create the object in the above line so we can know they aren't null
+          (fieldStat.errorsCount as number) = (node.error && node.error.length) || 0;
+          (fieldStat.count as number)++;
+          (fieldStat.requestsWithErrorsCount as number) += (node.error && node.error.length > 0) ?  1 : 0;
+          (fieldStat.latencyCount as unknown as DurationHistogram).incrementDuration(duration);
         }
       }
     }
 
     iterateOverTraceForStats(trace, traceNodeStats);
     if (hasError) {
-      queryLatencyStats.requestsWithErrorCount++;
+      queryLatencyStats.requestsWithErrorsCount++;
     }
-  }
-
-  toProto(): ContextualizedStatsProto {
-    const queryLatencyStats = this.queryLatencyStats;
-    const perTypeStat: { [k: string]: TypeStatProto } = Object.create(null);
-    for (const type of this.perTypeStat.keys()) {
-      const perFieldStat: {
-        [k: string]: FieldStatProto | null;
-      } = Object.create(null);
-      const fieldMap = this.perTypeStat.get(type);
-
-      // Should never hit this since we check it is in the list of keys
-      if (!fieldMap) continue;
-
-      const fields = fieldMap.keys();
-      for (const field of fields) {
-        const fieldStat = fieldMap.get(field);
-
-        // Should never hit this since we check it is in the list of keys
-        if (!fieldStat) continue;
-
-        perFieldStat[field] = {
-          returnType: fieldStat.returnType,
-          requestsWithErrorsCount: fieldStat.requestsWithErrorsCount,
-          errorsCount: fieldStat.errorsCount,
-          latencyCount: fieldStat.latencyCount.toArray(),
-          count: fieldStat.count,
-        };
-      }
-      perTypeStat[type] = perFieldStat;
-    }
-    return new ContextualizedStatsProto({
-      context: this.statsContext,
-      queryLatencyStats: {
-        latencyCount: queryLatencyStats.latencyCount.toArray(),
-        requestCount: queryLatencyStats.requestCount,
-        cacheHits: queryLatencyStats.cacheHits,
-        persistedQueryHits: queryLatencyStats.persistedQueryHits,
-        persistedQueryMisses: queryLatencyStats.persistedQueryMisses,
-        cacheLatencyCount: queryLatencyStats.cacheLatencyCount.toArray(),
-        rootErrorStats: queryLatencyStats.rootErrorStats,
-        requestsWithErrorsCount: queryLatencyStats.requestsWithErrorCount,
-        publicCacheTtlCount: queryLatencyStats.publicCacheTtlCount.toArray(),
-        privateCacheTtlCount: queryLatencyStats.privateCacheTtlCount.toArray(),
-        registeredOperationCount: queryLatencyStats.registeredOperationCount,
-        forbiddenOperationCount: queryLatencyStats.forbiddenOperationCount,
-      },
-      perTypeStat: perTypeStat,
-    });
   }
 }
 
@@ -226,7 +176,7 @@ function iterateOverQueryPlan(
     node.fetch.trace.root &&
     node.fetch.serviceName
   ) {
-    iterateOverTraceNode(node.fetch.trace.root, [node.fetch.serviceName], f);
+    iterateOverTraceNode(node.fetch.trace.root, [`service:${node.fetch.serviceName}`], f);
   } else if (node.flatten) {
     iterateOverQueryPlan(node.flatten.node, f);
   } else if (node.parallel && node.parallel.nodes) {
