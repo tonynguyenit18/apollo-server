@@ -6,6 +6,8 @@ import {
   ContextualizedStats as ContextualizedStatsProto,
   ITypeStat as TypeStatProto,
   IFieldStat as FieldStatProto,
+  IQueryLatencyStats,
+  QueryLatencyStats,
 } from 'apollo-engine-reporting-protobuf';
 
 export interface FieldStat {
@@ -15,22 +17,6 @@ export interface FieldStat {
   requestsWithErrorsCount: number;
   latencyCount: DurationHistogram;
 }
-
-export interface QueryLatencyStats {
-  readonly latencyCount: DurationHistogram;
-  requestCount: number;
-  cacheHits: number;
-  persistedQueryHits: number;
-  persistedQueryMisses: number;
-  readonly cacheLatencyCount: DurationHistogram;
-  readonly rootErrorStats: IPathErrorStats;
-  requestsWithErrorCount: number;
-  readonly publicCacheTtlCount: DurationHistogram;
-  readonly privateCacheTtlCount: DurationHistogram;
-  registeredOperationCount: number;
-  forbiddenOperationCount: number;
-}
-
 export class ContextualizedStats {
   statsContext: IStatsContext;
   queryLatencyStats: QueryLatencyStats;
@@ -41,7 +27,7 @@ export class ContextualizedStats {
 
   constructor(statsContext: IStatsContext) {
     this.statsContext = statsContext;
-    this.queryLatencyStats = {
+    this.queryLatencyStats = new QueryLatencyStats({
       latencyCount: new DurationHistogram(),
       requestCount: 0,
       cacheHits: 0,
@@ -54,10 +40,11 @@ export class ContextualizedStats {
       privateCacheTtlCount: new DurationHistogram(),
       registeredOperationCount: 0,
       forbiddenOperationCount: 0,
-    };
+    });
   }
 
   public addTrace(trace: Trace) {
+
     const queryLatencyStats = this.queryLatencyStats;
     queryLatencyStats.requestCount++;
     if (trace.fullQueryCacheHit) {

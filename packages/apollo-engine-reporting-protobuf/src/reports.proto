@@ -4,6 +4,12 @@ package mdg.engine.proto;
 
 import "google/protobuf/timestamp.proto";
 
+import "google/protobuf/descriptor.proto";
+
+extend google.protobuf.FieldOptions {
+	bool js_use_toArray = 50505;
+}
+
 message Trace {
 	message CachePolicy {
 		enum Scope {
@@ -284,16 +290,16 @@ message PathErrorStats {
 }
 
 message QueryLatencyStats {
-	repeated int64 latency_count = 1;
+	repeated int64 latency_count = 1 [(js_use_toArray)=true];
 	uint64 request_count = 2;
 	uint64 cache_hits = 3;
 	uint64 persisted_query_hits = 4;
 	uint64 persisted_query_misses = 5;
-	repeated int64 cache_latency_count = 6;
+	repeated int64 cache_latency_count = 6 [(js_use_toArray)=true];
 	PathErrorStats root_error_stats = 7;
 	uint64 requests_with_errors_count = 8;
-	repeated int64 public_cache_ttl_count = 9;
-	repeated int64 private_cache_ttl_count = 10;
+	repeated int64 public_cache_ttl_count = 9 [(js_use_toArray)=true];
+	repeated int64 private_cache_ttl_count = 10 [(js_use_toArray)=true];
 	uint64 registered_operation_count = 11;
 	uint64 forbidden_operation_count = 12;
 }
