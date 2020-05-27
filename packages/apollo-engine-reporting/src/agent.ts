@@ -32,7 +32,7 @@ import { reportingLoop, SchemaReporter } from './schemaReporter';
 import { v4 as uuidv4 } from 'uuid';
 import { createHash } from 'crypto';
 import { DurationHistogram } from './durationHistogram';
-import { ContextualizedStats } from './ContextualizedStats';
+import { ContextualizedStats } from './contextualizedStats';
 
 let warnedOnDeprecatedApiKey = false;
 
@@ -743,6 +743,8 @@ export class EngineReportingAgent<TContext = any> {
 
     const statsKeys = Object.keys(report.tracesPerQuery);
     for (const statsKey of statsKeys) {
+      // Take the contextualized stats from the map and push them onto the
+      // statsContext array
       const statsMap: Map<IStatsContext, ContextualizedStats> = (report
         .tracesPerQuery[statsKey] as any).statsMap;
       if (statsMap) {

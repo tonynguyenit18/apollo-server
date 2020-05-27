@@ -259,7 +259,7 @@ function errorToProtobufError(error: GraphQLError): Trace.Error {
 }
 
 // Converts a JS Date into a Timestamp.
-function dateToProtoTimestamp(date: Date): google.protobuf.Timestamp {
+export function dateToProtoTimestamp(date: Date): google.protobuf.Timestamp {
   const totalMillis = +date;
   const millis = totalMillis % 1000;
   return new google.protobuf.Timestamp({

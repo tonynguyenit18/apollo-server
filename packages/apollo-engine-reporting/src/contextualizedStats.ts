@@ -45,14 +45,14 @@ export class ContextualizedStats {
       );
     }
 
-    if (!trace.fullQueryCacheHit && trace.cachePolicy && trace.cachePolicy) {
+    if (!trace.fullQueryCacheHit && trace.cachePolicy && trace.cachePolicy.maxAgeNs) {
       if (trace.cachePolicy.scope == Trace.CachePolicy.Scope.PRIVATE) {
         ((queryLatencyStats.privateCacheTtlCount as unknown) as DurationHistogram).incrementDuration(
-          trace.cachePolicy.maxAgeNs || 0,
+          trace.cachePolicy.maxAgeNs
         );
       } else if (trace.cachePolicy.scope == Trace.CachePolicy.Scope.PUBLIC) {
         ((queryLatencyStats.publicCacheTtlCount as unknown) as DurationHistogram).incrementDuration(
-          trace.cachePolicy.maxAgeNs || 0,
+          trace.cachePolicy.maxAgeNs
         );
       }
     }
@@ -69,13 +69,12 @@ export class ContextualizedStats {
       queryLatencyStats.registeredOperationCount++;
     }
 
-    queryLatencyStats.requestsWithErrorsCount++;
-
     let hasError = false;
     const typeStats = this.perTypeStat;
     const rootPathErrorStats = queryLatencyStats.rootErrorStats as IPathErrorStats;
 
     function traceNodeStats(node: Trace.INode, path: ReadonlyArray<string>) {
+      // Generate error stats and error path information
       if (node.error && node.error.length > 0) {
         hasError = true;
 
@@ -93,14 +92,16 @@ export class ContextualizedStats {
             [k: string]: IPathErrorStats;
           })[subPath];
           if (!nextPathErrorStats) {
-            nextPathErrorStats = Object.create(null)(
-              children as { [k: string]: IPathErrorStats },
+            nextPathErrorStats = Object.create(null);
+            (
+              children as { [k: string]: IPathErrorStats }
             )[subPath] = nextPathErrorStats;
           }
 
-          // nextPathErrorStats be null or undefined
+          // nextPathErrorStats cannot be null or undefined
           currPathErrorStats = nextPathErrorStats as IPathErrorStats;
         }
+
         currPathErrorStats.requestsWithErrorsCount =
           (currPathErrorStats.requestsWithErrorsCount || 0) + 1;
         currPathErrorStats.errorsCount =
@@ -223,7 +224,7 @@ function iterateOverTraceNode(
         childPath = path.concat(child.responseName);
       }
 
-      iterateOverTraceNode(node, childPath, f);
+      iterateOverTraceNode(child, childPath, f);
     }
   }
   f(node, path);
