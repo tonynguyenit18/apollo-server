@@ -649,6 +649,52 @@ export class EngineReportingAgent<TContext = any> {
       >();
     }
 
+    const traceCacheKey = {
+      statsReportKey,
+      statsBucket: DurationHistogram.durationToBucket(trace.durationNs),
+      endsAtMinute:
+        ((trace && trace.endTime && trace.endTime.seconds) || 0) % 60,
+    };
+
+    const convertTraceToStats =
+      reportData.traceCache.get(traceCacheKey) === true;
+
+    if (convertTraceToStats) {
+      const statsContext: IStatsContext = {
+        clientName: trace.clientName,
+        clientVersion: trace.clientVersion,
+        clientReferenceId: trace.clientReferenceId,
+      };
+
+      // TODO: Update sizing
+      let contextualizedStats: ContextualizedStats = (report.tracesPerQuery[
+        statsReportKey
+      ] as any).statsMap.get(statsContext);
+
+      if (!contextualizedStats) {
+        contextualizedStats = new ContextualizedStats(statsContext);
+        (report.tracesPerQuery[statsReportKey] as any).statsMap.set(
+          statsContext,
+          contextualizedStats,
+        );
+      }
+
+      contextualizedStats.addTrace(trace);
+    } else {
+      const protobufError = Trace.verify(trace);
+      if (protobufError) {
+        throw new Error(`Error encoding trace: ${protobufError}`);
+      }
+      const encodedTrace = Trace.encode(trace).finish();
+
+      // See comment on our override of Traces.encode inside of
+      // apollo-engine-reporting-protobuf to learn more about this strategy.
+      (report.tracesPerQuery[statsReportKey] as any).encodedTraces.push(
+        encodedTrace,
+      );
+      reportData.size +=
+        encodedTrace.length + Buffer.byteLength(statsReportKey);
+    }
 
     // If the buffer gets big (according to our estimate), send.
     if (
@@ -657,62 +703,6 @@ export class EngineReportingAgent<TContext = any> {
         (this.options.maxUncompressedReportSize || 4 * 1024 * 1024)
     ) {
       await this.sendReportAndReportErrors(executableSchemaId);
-
-      const traceCacheKey = {
-        statsReportKey,
-        statsBucket: DurationHistogram.durationToBucket(trace.durationNs),
-        endsAtMinute:
-          ((trace && trace.endTime && trace.endTime.seconds) || 0) % 60,
-      };
-
-      const convertTraceToStats =
-        reportData.traceCache.get(traceCacheKey) === true;
-
-      if (convertTraceToStats) {
-        const statsContext: IStatsContext = {
-          clientName: trace.clientName,
-          clientVersion: trace.clientVersion,
-          clientReferenceId: trace.clientReferenceId,
-        };
-
-        // TODO: Update sizing
-        let contextualizedStats: ContextualizedStats =
-          (report.tracesPerQuery[statsReportKey] as any).statsMap.get(
-            statsContext,
-          );
-
-        if (!contextualizedStats) {
-          contextualizedStats = new ContextualizedStats(statsContext);
-          (report.tracesPerQuery[statsReportKey] as any).statsMap.set(
-            statsContext,
-            contextualizedStats
-          );
-        }
-
-        contextualizedStats.addTrace(trace);
-      } else {
-        const protobufError = Trace.verify(trace);
-        if (protobufError) {
-          throw new Error(`Error encoding trace: ${protobufError}`);
-        }
-        const encodedTrace = Trace.encode(trace).finish();
-
-        // See comment on our override of Traces.encode inside of
-        // apollo-engine-reporting-protobuf to learn more about this strategy.
-        (report.tracesPerQuery[statsReportKey] as any).encodedTraces.push(
-          encodedTrace,
-        );
-        reportData.size += encodedTrace.length + Buffer.byteLength(statsReportKey);
-      }
-
-        // If the buffer gets big (according to our estimate), send.
-        if (
-          this.sendReportsImmediately ||
-          reportData.size >=
-          (this.options.maxUncompressedReportSize || 4 * 1024 * 1024)
-        ) {
-          await this.sendReportAndReportErrors(executableSchemaId);
-        }
     }
   }
 
@@ -753,11 +743,12 @@ export class EngineReportingAgent<TContext = any> {
 
     const statsKeys = Object.keys(report.tracesPerQuery);
     for (const statsKey of statsKeys) {
-      const statsMap: Map<IStatsContext, ContextualizedStats> = (report.tracesPerQuery[statsKey] as any).statsMap;
+      const statsMap: Map<IStatsContext, ContextualizedStats> = (report
+        .tracesPerQuery[statsKey] as any).statsMap;
       if (statsMap) {
-        let statsWithContext = report.tracesPerQuery[statsKey].statsWithContext
+        let statsWithContext = report.tracesPerQuery[statsKey].statsWithContext;
         if (!statsWithContext) {
-          statsWithContext = new Array<ContextualizedStatsProto>()
+          statsWithContext = new Array<ContextualizedStatsProto>();
           report.tracesPerQuery[statsKey].statsWithContext = statsWithContext;
         }
         for (const statWithContext of statsMap.values()) {

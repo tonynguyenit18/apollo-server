@@ -162,20 +162,20 @@ export class ContextualizedStats {
     const queryLatencyStats = this.queryLatencyStats;
     const perTypeStat: { [k: string]: TypeStatProto } = Object.create(null);
     for (const type of this.perTypeStat.keys()) {
-      const perFieldStat:   { [k: string]: FieldStatProto | null } = Object.create(null);
-      const fieldMap = this.perTypeStat.get(type)
+      const perFieldStat: {
+        [k: string]: FieldStatProto | null;
+      } = Object.create(null);
+      const fieldMap = this.perTypeStat.get(type);
 
       // Should never hit this since we check it is in the list of keys
-      if (!fieldMap)
-        continue;
+      if (!fieldMap) continue;
 
-      const fields = fieldMap.keys()
+      const fields = fieldMap.keys();
       for (const field of fields) {
         const fieldStat = fieldMap.get(field);
 
         // Should never hit this since we check it is in the list of keys
-        if (!fieldStat)
-          continue;
+        if (!fieldStat) continue;
 
         perFieldStat[field] = {
           returnType: fieldStat.returnType,
@@ -183,7 +183,7 @@ export class ContextualizedStats {
           errorsCount: fieldStat.errorsCount,
           latencyCount: fieldStat.latencyCount.toArray(),
           count: fieldStat.count,
-        }
+        };
       }
       perTypeStat[type] = perFieldStat;
     }
