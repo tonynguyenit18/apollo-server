@@ -109,11 +109,11 @@ export class ContextualizedStats {
       }
 
       if (
-        node.parentType &&
-        node.originalFieldName &&
-        node.type &&
-        node.endTime &&
-        node.startTime
+        node.parentType != null&&
+        node.originalFieldName != null &&
+        node.type != null &&
+        node.endTime != null &&
+        node.startTime != null
       ) {
         let typeStat = typeStats[node.parentType];
         if (!typeStat) {
