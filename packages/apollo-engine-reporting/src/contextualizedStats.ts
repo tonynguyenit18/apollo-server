@@ -102,7 +102,10 @@ export class ContextualizedStats {
 
         let currPathErrorStats: IPathErrorStats = rootPathErrorStats;
 
-        for (const subPath of path.values()) {
+        for (const subPathEntry of path.entries()) {
+          // Using entries instead values since Node 8
+          // doesn't support Array.prototype.values
+          const subPath = subPathEntry[1];
           let children = currPathErrorStats.children;
           if (!children) {
             children = Object.create(null);
