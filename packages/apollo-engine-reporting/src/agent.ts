@@ -408,7 +408,7 @@ export interface AddTraceArgs {
 interface TraceCacheKey {
   statsReportKey: string;
   statsBucket: number;
-  endsAtMinute: Number;
+  endsAtMinute: number;
 }
 
 const serviceHeaderDefaults = {
@@ -694,6 +694,7 @@ export class EngineReportingAgent<TContext = any> {
       );
       reportData.size +=
         encodedTrace.length + Buffer.byteLength(statsReportKey);
+      reportData.traceCache.set(traceCacheKey, true);
     }
 
     // If the buffer gets big (according to our estimate), send.

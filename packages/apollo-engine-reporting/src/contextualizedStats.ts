@@ -1,20 +1,43 @@
-import { DurationHistogram } from './durationHistogram';
+import { DurationHistogram } from "./durationHistogram";
 import {
   IStatsContext,
   Trace,
   TypeStat,
-  QueryLatencyStats,
-  IPathErrorStats,
-} from 'apollo-engine-reporting-protobuf';
+  IPathErrorStats
+} from "apollo-engine-reporting-protobuf";
+
+export interface IQueryLatencyStats {
+  latencyCount: DurationHistogram;
+  requestCount: number;
+  cacheHits: number;
+  persistedQueryHits: number;
+  persistedQueryMisses: number;
+  cacheLatencyCount: DurationHistogram;
+  rootErrorStats: IPathErrorStats;
+  requestsWithErrorsCount: number;
+  publicCacheTtlCount: DurationHistogram;
+  privateCacheTtlCount: DurationHistogram;
+  registeredOperationCount: number;
+  forbiddenOperationCount: number;
+}
+
+export interface IFieldStat {
+  returnType: string;
+  errorsCount: number;
+  count: number;
+  requestsWithErrorsCount: number;
+  latencyCount: DurationHistogram;
+}
+
 
 export class ContextualizedStats {
   statsContext: IStatsContext;
-  queryLatencyStats: QueryLatencyStats;
+  queryLatencyStats: IQueryLatencyStats;
   perTypeStat: { [k: string]: TypeStat };
 
   constructor(statsContext: IStatsContext) {
     this.statsContext = statsContext;
-    this.queryLatencyStats = new QueryLatencyStats({
+    this.queryLatencyStats = {
       latencyCount: new DurationHistogram(),
       requestCount: 0,
       cacheHits: 0,
@@ -26,8 +49,8 @@ export class ContextualizedStats {
       publicCacheTtlCount: new DurationHistogram(),
       privateCacheTtlCount: new DurationHistogram(),
       registeredOperationCount: 0,
-      forbiddenOperationCount: 0,
-    });
+      forbiddenOperationCount: 0
+    };
     this.perTypeStat = Object.create(null);
   }
 
@@ -35,25 +58,17 @@ export class ContextualizedStats {
     const queryLatencyStats = this.queryLatencyStats;
     queryLatencyStats.requestCount++;
     if (trace.fullQueryCacheHit) {
-      ((queryLatencyStats.cacheLatencyCount as unknown) as DurationHistogram).incrementDuration(
-        trace.durationNs,
-      );
+      queryLatencyStats.cacheLatencyCount.incrementDuration(trace.durationNs);
       queryLatencyStats.cacheHits++;
     } else {
-      ((queryLatencyStats.latencyCount as unknown) as DurationHistogram).incrementDuration(
-        trace.durationNs,
-      );
+      queryLatencyStats.latencyCount.incrementDuration(trace.durationNs);
     }
 
     if (!trace.fullQueryCacheHit && trace.cachePolicy && trace.cachePolicy.maxAgeNs) {
       if (trace.cachePolicy.scope == Trace.CachePolicy.Scope.PRIVATE) {
-        ((queryLatencyStats.privateCacheTtlCount as unknown) as DurationHistogram).incrementDuration(
-          trace.cachePolicy.maxAgeNs
-        );
+        queryLatencyStats.privateCacheTtlCount.incrementDuration(trace.cachePolicy.maxAgeNs);
       } else if (trace.cachePolicy.scope == Trace.CachePolicy.Scope.PUBLIC) {
-        ((queryLatencyStats.publicCacheTtlCount as unknown) as DurationHistogram).incrementDuration(
-          trace.cachePolicy.maxAgeNs
-        );
+        queryLatencyStats.publicCacheTtlCount.incrementDuration(trace.cachePolicy.maxAgeNs);
       }
     }
 
@@ -121,7 +136,7 @@ export class ContextualizedStats {
           typeStats[node.parentType] = typeStat;
         }
 
-        let fieldStat = typeStat.perFieldStat[node.originalFieldName];
+        let fieldStat = typeStat.perFieldStat[node.originalFieldName] as IFieldStat;
         const duration = node.endTime - node.startTime;
         if (!fieldStat) {
           const durationHistogram = new DurationHistogram();
@@ -137,19 +152,19 @@ export class ContextualizedStats {
           typeStat.perFieldStat[node.originalFieldName] = fieldStat;
         } else {
           // We only create the object in the above line so we can know they aren't null
-          (fieldStat.errorsCount as number) =
+          fieldStat.errorsCount =
             (node.error && node.error.length) || 0;
-          (fieldStat.count as number)++;
+          fieldStat.count++;
           // Note: this is actually counting the number of resolver calls for this
           // field that had at least one error, not the number of overall GraphQL
           // queries that had at least one error for this field. That doesn't seem
           // to match the name, but it does match the Go engineproxy implementation.
           // (Well, actually the Go engineproxy implementation is even buggier because
           // it counts errors multiple times if multiple resolvers have the same path.)
-          (fieldStat.requestsWithErrorsCount as number) +=
+          fieldStat.requestsWithErrorsCount +=
             node.error && node.error.length > 0 ? 1 : 0;
-          ((fieldStat.latencyCount as unknown) as DurationHistogram).incrementDuration(
-            duration,
+          fieldStat.latencyCount.incrementDuration(
+            duration
           );
         }
       }
