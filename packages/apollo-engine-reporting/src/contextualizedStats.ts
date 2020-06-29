@@ -1,10 +1,10 @@
-import { DurationHistogram } from "./durationHistogram";
+import { DurationHistogram } from './durationHistogram';
 import {
   IStatsContext,
   Trace,
   TypeStat,
-  IPathErrorStats
-} from "apollo-engine-reporting-protobuf";
+  IPathErrorStats,
+} from 'apollo-engine-reporting-protobuf';
 
 export interface IQueryLatencyStats {
   latencyCount: DurationHistogram;
@@ -29,7 +29,6 @@ export interface IFieldStat {
   latencyCount: DurationHistogram;
 }
 
-
 export class ContextualizedStats {
   statsContext: IStatsContext;
   queryLatencyStats: IQueryLatencyStats;
@@ -49,7 +48,7 @@ export class ContextualizedStats {
       publicCacheTtlCount: new DurationHistogram(),
       privateCacheTtlCount: new DurationHistogram(),
       registeredOperationCount: 0,
-      forbiddenOperationCount: 0
+      forbiddenOperationCount: 0,
     };
     this.perTypeStat = Object.create(null);
   }
@@ -64,11 +63,19 @@ export class ContextualizedStats {
       queryLatencyStats.latencyCount.incrementDuration(trace.durationNs);
     }
 
-    if (!trace.fullQueryCacheHit && trace.cachePolicy && trace.cachePolicy.maxAgeNs) {
+    if (
+      !trace.fullQueryCacheHit &&
+      trace.cachePolicy &&
+      trace.cachePolicy.maxAgeNs
+    ) {
       if (trace.cachePolicy.scope == Trace.CachePolicy.Scope.PRIVATE) {
-        queryLatencyStats.privateCacheTtlCount.incrementDuration(trace.cachePolicy.maxAgeNs);
+        queryLatencyStats.privateCacheTtlCount.incrementDuration(
+          trace.cachePolicy.maxAgeNs,
+        );
       } else if (trace.cachePolicy.scope == Trace.CachePolicy.Scope.PUBLIC) {
-        queryLatencyStats.publicCacheTtlCount.incrementDuration(trace.cachePolicy.maxAgeNs);
+        queryLatencyStats.publicCacheTtlCount.incrementDuration(
+          trace.cachePolicy.maxAgeNs,
+        );
       }
     }
 
@@ -108,9 +115,9 @@ export class ContextualizedStats {
           })[subPath];
           if (!nextPathErrorStats) {
             nextPathErrorStats = Object.create(null);
-            (
-              children as { [k: string]: IPathErrorStats }
-            )[subPath] = nextPathErrorStats;
+            (children as { [k: string]: IPathErrorStats })[
+              subPath
+            ] = nextPathErrorStats;
           }
 
           // nextPathErrorStats cannot be null or undefined
@@ -124,7 +131,7 @@ export class ContextualizedStats {
       }
 
       if (
-        node.parentType != null&&
+        node.parentType != null &&
         node.originalFieldName != null &&
         node.type != null &&
         node.endTime != null &&
@@ -136,7 +143,9 @@ export class ContextualizedStats {
           typeStats[node.parentType] = typeStat;
         }
 
-        let fieldStat = typeStat.perFieldStat[node.originalFieldName] as IFieldStat;
+        let fieldStat = typeStat.perFieldStat[
+          node.originalFieldName
+        ] as IFieldStat;
         const duration = node.endTime - node.startTime;
         if (!fieldStat) {
           const durationHistogram = new DurationHistogram();
@@ -152,8 +161,7 @@ export class ContextualizedStats {
           typeStat.perFieldStat[node.originalFieldName] = fieldStat;
         } else {
           // We only create the object in the above line so we can know they aren't null
-          fieldStat.errorsCount =
-            (node.error && node.error.length) || 0;
+          fieldStat.errorsCount = (node.error && node.error.length) || 0;
           fieldStat.count++;
           // Note: this is actually counting the number of resolver calls for this
           // field that had at least one error, not the number of overall GraphQL
@@ -163,9 +171,7 @@ export class ContextualizedStats {
           // it counts errors multiple times if multiple resolvers have the same path.)
           fieldStat.requestsWithErrorsCount +=
             node.error && node.error.length > 0 ? 1 : 0;
-          fieldStat.latencyCount.incrementDuration(
-            duration
-          );
+          fieldStat.latencyCount.incrementDuration(duration);
         }
       }
     }

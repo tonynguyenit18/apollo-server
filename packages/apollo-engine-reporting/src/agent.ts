@@ -432,10 +432,46 @@ class ReportData {
     });
     this.reset();
   }
+
   reset() {
     this.report = new Report({ header: this.header });
     this.size = 0;
     this.traceCache = new Map<TraceCacheKey, boolean>();
+  }
+}
+
+class StatsMap {
+  readonly map: Map<IStatsContext, ContextualizedStats> = new Map<
+    IStatsContext,
+    ContextualizedStats
+  >();
+
+  public toArray(): IContextualizedStats[] {
+    const statsWithContext = new Array<IContextualizedStats>();
+    for (const statWithContext of this.map.values()) {
+      statsWithContext.push(statWithContext);
+    }
+    return statsWithContext;
+  }
+
+  public addTrace(trace: Trace) {
+    const statsContext: IStatsContext = {
+      clientName: trace.clientName,
+      clientVersion: trace.clientVersion,
+      clientReferenceId: trace.clientReferenceId,
+    };
+
+    // TODO: Update sizing
+    let contextualizedStats: ContextualizedStats | undefined = this.map.get(
+      statsContext,
+    );
+
+    if (!contextualizedStats) {
+      contextualizedStats = new ContextualizedStats(statsContext);
+      this.map.set(statsContext, contextualizedStats);
+    }
+
+    contextualizedStats.addTrace(trace);
   }
 }
 
@@ -490,8 +526,8 @@ export class EngineReportingAgent<TContext = any> {
       this.logger.warn(
         [
           '[deprecated] The "experimental_schemaReporting" option has been',
-          'renamed to "reportSchema"'
-        ].join(' ')
+          'renamed to "reportSchema"',
+        ].join(' '),
       );
       if (options.reportSchema === undefined) {
         options.reportSchema = options.experimental_schemaReporting;
@@ -502,11 +538,12 @@ export class EngineReportingAgent<TContext = any> {
       this.logger.warn(
         [
           '[deprecated] The "experimental_overrideReportedSchema" option has',
-          'been renamed to "overrideReportedSchema"'
-        ].join(' ')
+          'been renamed to "overrideReportedSchema"',
+        ].join(' '),
       );
       if (options.overrideReportedSchema === undefined) {
-        options.overrideReportedSchema = options.experimental_overrideReportedSchema;
+        options.overrideReportedSchema =
+          options.experimental_overrideReportedSchema;
       }
     }
 
@@ -514,18 +551,19 @@ export class EngineReportingAgent<TContext = any> {
       this.logger.warn(
         [
           '[deprecated] The "experimental_schemaReportingInitialDelayMaxMs"',
-          'option has been renamed to "schemaReportingInitialDelayMaxMs"'
-        ].join(' ')
+          'option has been renamed to "schemaReportingInitialDelayMaxMs"',
+        ].join(' '),
       );
       if (options.schemaReportingInitialDelayMaxMs === undefined) {
-        options.schemaReportingInitialDelayMaxMs = options.experimental_schemaReportingInitialDelayMaxMs;
+        options.schemaReportingInitialDelayMaxMs =
+          options.experimental_schemaReportingInitialDelayMaxMs;
       }
     }
 
     if (options.reportSchema !== undefined) {
       this.schemaReport = options.reportSchema;
     } else {
-      this.schemaReport = process.env.APOLLO_SCHEMA_REPORTING === "true"
+      this.schemaReport = process.env.APOLLO_SCHEMA_REPORTING === 'true';
     }
 
     // Since calculating the signature for Engine reporting is potentially an
@@ -643,10 +681,9 @@ export class EngineReportingAgent<TContext = any> {
     if (!report.tracesPerQuery.hasOwnProperty(statsReportKey)) {
       report.tracesPerQuery[statsReportKey] = new TracesAndStats();
       (report.tracesPerQuery[statsReportKey] as any).encodedTraces = [];
-      (report.tracesPerQuery[statsReportKey] as any).statsMap = new Map<
-        IStatsContext,
-        ContextualizedStats
-      >();
+      (report.tracesPerQuery[
+        statsReportKey
+      ] as any).statsWithContext = new StatsMap();
     }
 
     const traceCacheKey = {
@@ -660,26 +697,9 @@ export class EngineReportingAgent<TContext = any> {
       reportData.traceCache.get(traceCacheKey) === true;
 
     if (convertTraceToStats) {
-      const statsContext: IStatsContext = {
-        clientName: trace.clientName,
-        clientVersion: trace.clientVersion,
-        clientReferenceId: trace.clientReferenceId,
-      };
-
-      // TODO: Update sizing
-      let contextualizedStats: ContextualizedStats = (report.tracesPerQuery[
-        statsReportKey
-      ] as any).statsMap.get(statsContext);
-
-      if (!contextualizedStats) {
-        contextualizedStats = new ContextualizedStats(statsContext);
-        (report.tracesPerQuery[statsReportKey] as any).statsMap.set(
-          statsContext,
-          contextualizedStats,
-        );
-      }
-
-      contextualizedStats.addTrace(trace);
+      (report.tracesPerQuery[statsReportKey] as any).statsWithContext.addTrace(
+        trace,
+      );
     } else {
       const protobufError = Trace.verify(trace);
       if (protobufError) {
@@ -740,24 +760,6 @@ export class EngineReportingAgent<TContext = any> {
       this.logger.warn(
         `Engine sending report: ${JSON.stringify(report.toJSON())}`,
       );
-    }
-
-    const statsKeys = Object.keys(report.tracesPerQuery);
-    for (const statsKey of statsKeys) {
-      // Take the contextualized stats from the map and push them onto the
-      // statsContext array
-      const statsMap: Map<IStatsContext, ContextualizedStats> = (report
-        .tracesPerQuery[statsKey] as any).statsMap;
-      if (statsMap) {
-        let statsWithContext = report.tracesPerQuery[statsKey].statsWithContext;
-        if (!statsWithContext) {
-          statsWithContext = new Array<IContextualizedStats>();
-          report.tracesPerQuery[statsKey].statsWithContext = statsWithContext;
-        }
-        for (const statWithContext of statsMap.values()) {
-          statsWithContext.push(statWithContext);
-        }
-      }
     }
 
     const protobufError = Report.verify(report);
@@ -854,14 +856,14 @@ export class EngineReportingAgent<TContext = any> {
       this.logger.info('Schema to report has been overridden');
     }
     if (this.options.schemaReportingInitialDelayMaxMs !== undefined) {
-      this.logger.info(`Schema reporting max initial delay override: ${
-        this.options.schemaReportingInitialDelayMaxMs
-      } ms`);
+      this.logger.info(
+        `Schema reporting max initial delay override: ${this.options.schemaReportingInitialDelayMaxMs} ms`,
+      );
     }
     if (this.options.schemaReportingUrl !== undefined) {
-      this.logger.info(`Schema reporting URL override: ${
-        this.options.schemaReportingUrl
-      }`);
+      this.logger.info(
+        `Schema reporting URL override: ${this.options.schemaReportingUrl}`,
+      );
     }
     if (this.currentSchemaReporter) {
       this.currentSchemaReporter.stop();
@@ -887,13 +889,12 @@ export class EngineReportingAgent<TContext = any> {
     };
 
     this.logger.info(
-      `Schema reporting EdgeServerInfo: ${JSON.stringify(serverInfo)}`
-    )
+      `Schema reporting EdgeServerInfo: ${JSON.stringify(serverInfo)}`,
+    );
 
     // Jitter the startup between 0 and 10 seconds
     const delay = Math.floor(
-      Math.random() *
-        (this.options.schemaReportingInitialDelayMaxMs || 10_000),
+      Math.random() * (this.options.schemaReportingInitialDelayMaxMs || 10_000),
     );
 
     const schemaReporter = new SchemaReporter(
@@ -901,7 +902,7 @@ export class EngineReportingAgent<TContext = any> {
       executableSchema,
       this.apiKey,
       this.options.schemaReportingUrl,
-      this.logger
+      this.logger,
     );
 
     const fallbackReportingDelayInMs = 20_000;
