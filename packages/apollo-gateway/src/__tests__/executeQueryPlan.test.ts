@@ -21,6 +21,7 @@ import { LocalGraphQLDataSource } from '../datasources/LocalGraphQLDataSource';
 
 import { astSerializer, queryPlanSerializer } from '../snapshotSerializers';
 import { fixtureNames } from './__fixtures__/schemas';
+import { transformQueryPlan } from '../QueryPlanNew';
 
 expect.addSnapshotSerializer(astSerializer);
 expect.addSnapshotSerializer(queryPlanSerializer);
@@ -212,7 +213,7 @@ describe('executeQueryPlan', () => {
     });
   });
 
-  it(`should only return fields that have been requested directly`, async () => {
+  fit(`should only return fields that have been requested directly`, async () => {
     const query = gql`
       query {
         topReviews {
@@ -225,7 +226,10 @@ describe('executeQueryPlan', () => {
     `;
 
     const operationContext = buildOperationContext(schema, query);
-    const queryPlan = buildQueryPlan(operationContext);
+    const plan1 = buildQueryPlan(operationContext);
+    console.log(JSON.stringify({ plan1 }))
+    const queryPlan = transformQueryPlan(buildQueryPlan(operationContext));
+    console.log(JSON.stringify({ queryPlan }))
 
     const response = await executeQueryPlan(
       queryPlan,

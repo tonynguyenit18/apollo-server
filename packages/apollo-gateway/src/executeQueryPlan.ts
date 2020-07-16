@@ -7,7 +7,6 @@ import {
   execute,
   GraphQLError,
   Kind,
-  SelectionSetNode,
   TypeNameMetaFieldDef,
   GraphQLFieldResolver,
 } from 'graphql';
@@ -20,7 +19,9 @@ import {
   QueryPlan,
   ResponsePath,
   OperationContext,
-} from './QueryPlan';
+  SelectionNode,
+  FieldNode
+} from './QueryPlanNew';
 import { deepMerge } from './utilities/deepMerge';
 import { getResponseName } from './utilities/graphql';
 
@@ -388,15 +389,15 @@ async function executeFetch<TContext>(
  */
 function executeSelectionSet(
   source: Record<string, any> | null,
-  selectionSet: SelectionSetNode,
+  selections: SelectionNode[],
 ): Record<string, any> {
   const result: Record<string, any> = Object.create(null);
 
-  for (const selection of selectionSet.selections) {
+  for (const selection of selections) {
     switch (selection.kind) {
       case Kind.FIELD:
-        const responseName = getResponseName(selection);
-        const selectionSet = selection.selectionSet;
+        const responseName = getResponseName(selection as FieldNode);
+        const selections = (selection as FieldNode).selections;
 
         // Null is a valid value for a response, provided that the types match.
         // Presumably the underlying service has validated that result, so we
@@ -411,12 +412,12 @@ function executeSelectionSet(
         }
         if (Array.isArray(source[responseName])) {
           result[responseName] = source[responseName].map((value: any) =>
-            selectionSet ? executeSelectionSet(value, selectionSet) : value,
+            selections ? executeSelectionSet(value, selections) : value,
           );
-        } else if (selectionSet) {
+        } else if (selections) {
           result[responseName] = executeSelectionSet(
             source[responseName],
-            selectionSet,
+            selections,
           );
         } else {
           result[responseName] = source[responseName];
@@ -428,10 +429,10 @@ function executeSelectionSet(
         const typename = source && source['__typename'];
         if (!typename) continue;
 
-        if (typename === selection.typeCondition.name.value) {
+        if (typename === selection.typeCondition) {
           deepMerge(
             result,
-            executeSelectionSet(source, selection.selectionSet),
+            executeSelectionSet(source, selection.selections),
           );
         }
         break;
