@@ -1,12 +1,12 @@
-import { DurationHistogram } from "./durationHistogram";
+import { DurationHistogram } from './durationHistogram';
 import {
   IFieldStat,
   IPathErrorStats,
   IQueryLatencyStats,
   IStatsContext,
   Trace,
-  ITypeStat
-} from "apollo-engine-reporting-protobuf";
+  ITypeStat,
+} from 'apollo-engine-reporting-protobuf';
 
 export class QueryLatencyStats implements IQueryLatencyStats {
   latencyCount: DurationHistogram = new DurationHistogram();
@@ -103,8 +103,11 @@ export class ContextualizedStats {
           // Using entries instead values since Node 8
           // doesn't support Array.prototype.values
           const subPath = subPathEntry[1];
-          let children = currPathErrorStats.children || (currPathErrorStats.children = Object.create(null));
-          currPathErrorStats = children[subPath] || (children[subPath] = Object.create(null));
+          let children =
+            currPathErrorStats.children ||
+            (currPathErrorStats.children = Object.create(null));
+          currPathErrorStats =
+            children[subPath] || (children[subPath] = Object.create(null));
         }
 
         currPathErrorStats.requestsWithErrorsCount =
@@ -122,12 +125,14 @@ export class ContextualizedStats {
       ) {
         let typeStat = typeStats[node.parentType];
         if (!typeStat) {
-          typeStat = (typeStats[node.parentType] = new TypeStat());
+          typeStat = typeStats[node.parentType] = new TypeStat();
         }
 
-        let fieldStat = typeStat.perFieldStat[node.originalFieldName]
+        let fieldStat = typeStat.perFieldStat[node.originalFieldName];
         if (!fieldStat) {
-          fieldStat = (typeStat.perFieldStat[node.originalFieldName] = new FieldStat(node.type));
+          fieldStat = typeStat.perFieldStat[
+            node.originalFieldName
+          ] = new FieldStat(node.type);
         }
 
         // We only create the object in the above line so we can know they aren't null
@@ -140,8 +145,8 @@ export class ContextualizedStats {
         // (Well, actually the Go engineproxy implementation is even buggier because
         // it counts errors multiple times if multiple resolvers have the same path.)
         fieldStat.requestsWithErrorsCount +=
-            node.error && node.error.length > 0 ? 1 : 0;
-          fieldStat.latencyCount.incrementDuration(node.endTime - node.startTime);
+          node.error && node.error.length > 0 ? 1 : 0;
+        fieldStat.latencyCount.incrementDuration(node.endTime - node.startTime);
       }
     }
 
