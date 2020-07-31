@@ -1,55 +1,52 @@
-import { DurationHistogram } from './durationHistogram';
+import { DurationHistogram } from "./durationHistogram";
 import {
+  IFieldStat,
+  IPathErrorStats,
+  IQueryLatencyStats,
   IStatsContext,
   Trace,
-  TypeStat,
-  IPathErrorStats,
-} from 'apollo-engine-reporting-protobuf';
+  ITypeStat
+} from "apollo-engine-reporting-protobuf";
 
-export interface IQueryLatencyStats {
-  latencyCount: DurationHistogram;
-  requestCount: number;
-  cacheHits: number;
-  persistedQueryHits: number;
-  persistedQueryMisses: number;
-  cacheLatencyCount: DurationHistogram;
-  rootErrorStats: IPathErrorStats;
-  requestsWithErrorsCount: number;
-  publicCacheTtlCount: DurationHistogram;
-  privateCacheTtlCount: DurationHistogram;
-  registeredOperationCount: number;
-  forbiddenOperationCount: number;
+export class QueryLatencyStats implements IQueryLatencyStats {
+  latencyCount: DurationHistogram = new DurationHistogram();
+  requestCount: number = 0;
+  cacheHits: number = 0;
+  persistedQueryHits: number = 0;
+  persistedQueryMisses: number = 0;
+  cacheLatencyCount: DurationHistogram = new DurationHistogram();
+  rootErrorStats: IPathErrorStats = Object.create(null);
+  requestsWithErrorsCount: number = 0;
+  publicCacheTtlCount: DurationHistogram = new DurationHistogram();
+  privateCacheTtlCount: DurationHistogram = new DurationHistogram();
+  registeredOperationCount: number = 0;
+  forbiddenOperationCount: number = 0;
 }
 
-export interface IFieldStat {
+export class TypeStat implements ITypeStat {
+  perFieldStat: { [k: string]: FieldStat } = Object.create(null);
+}
+
+export class FieldStat implements IFieldStat {
   returnType: string;
-  errorsCount: number;
-  count: number;
-  requestsWithErrorsCount: number;
-  latencyCount: DurationHistogram;
+  errorsCount: number = 0;
+  count: number = 0;
+  requestsWithErrorsCount: number = 0;
+  latencyCount: DurationHistogram = new DurationHistogram();
+
+  constructor(returnType: string) {
+    this.returnType = returnType;
+  }
 }
 
 export class ContextualizedStats {
   statsContext: IStatsContext;
-  queryLatencyStats: IQueryLatencyStats;
+  queryLatencyStats: QueryLatencyStats;
   perTypeStat: { [k: string]: TypeStat };
 
   constructor(statsContext: IStatsContext) {
     this.statsContext = statsContext;
-    this.queryLatencyStats = {
-      latencyCount: new DurationHistogram(),
-      requestCount: 0,
-      cacheHits: 0,
-      persistedQueryHits: 0,
-      persistedQueryMisses: 0,
-      cacheLatencyCount: new DurationHistogram(),
-      rootErrorStats: Object.create(null),
-      requestsWithErrorsCount: 0,
-      publicCacheTtlCount: new DurationHistogram(),
-      privateCacheTtlCount: new DurationHistogram(),
-      registeredOperationCount: 0,
-      forbiddenOperationCount: 0,
-    };
+    this.queryLatencyStats = new QueryLatencyStats();
     this.perTypeStat = Object.create(null);
   }
 
@@ -93,38 +90,21 @@ export class ContextualizedStats {
 
     let hasError = false;
     const typeStats = this.perTypeStat;
-    const rootPathErrorStats = queryLatencyStats.rootErrorStats as IPathErrorStats;
+    const rootPathErrorStats = queryLatencyStats.rootErrorStats;
 
     function traceNodeStats(node: Trace.INode, path: ReadonlyArray<string>) {
       // Generate error stats and error path information
       if (node.error && node.error.length > 0) {
         hasError = true;
 
-        let currPathErrorStats: IPathErrorStats = rootPathErrorStats;
+        let currPathErrorStats = rootPathErrorStats;
 
         for (const subPathEntry of path.entries()) {
           // Using entries instead values since Node 8
           // doesn't support Array.prototype.values
           const subPath = subPathEntry[1];
-          let children = currPathErrorStats.children;
-          if (!children) {
-            children = Object.create(null);
-            currPathErrorStats.children = children;
-          }
-
-          // Children cannot be null or undefined be null or undefined
-          let nextPathErrorStats = (children as {
-            [k: string]: IPathErrorStats;
-          })[subPath];
-          if (!nextPathErrorStats) {
-            nextPathErrorStats = Object.create(null);
-            (children as { [k: string]: IPathErrorStats })[
-              subPath
-            ] = nextPathErrorStats;
-          }
-
-          // nextPathErrorStats cannot be null or undefined
-          currPathErrorStats = nextPathErrorStats as IPathErrorStats;
+          let children = currPathErrorStats.children || (currPathErrorStats.children = Object.create(null));
+          currPathErrorStats = children[subPath] || (children[subPath] = Object.create(null));
         }
 
         currPathErrorStats.requestsWithErrorsCount =
@@ -142,40 +122,26 @@ export class ContextualizedStats {
       ) {
         let typeStat = typeStats[node.parentType];
         if (!typeStat) {
-          typeStat = new TypeStat();
-          typeStats[node.parentType] = typeStat;
+          typeStat = (typeStats[node.parentType] = new TypeStat());
         }
 
-        let fieldStat = typeStat.perFieldStat[
-          node.originalFieldName
-        ] as IFieldStat;
-        const duration = node.endTime - node.startTime;
+        let fieldStat = typeStat.perFieldStat[node.originalFieldName]
         if (!fieldStat) {
-          const durationHistogram = new DurationHistogram();
-          durationHistogram.incrementDuration(duration);
-          fieldStat = {
-            returnType: node.type,
-            errorsCount: (node.error && node.error.length) || 0,
-            count: 1,
-            requestsWithErrorsCount:
-              node.error && node.error.length > 0 ? 1 : 0,
-            latencyCount: durationHistogram,
-          };
-          typeStat.perFieldStat[node.originalFieldName] = fieldStat;
-        } else {
-          // We only create the object in the above line so we can know they aren't null
-          fieldStat.errorsCount = (node.error && node.error.length) || 0;
-          fieldStat.count++;
-          // Note: this is actually counting the number of resolver calls for this
-          // field that had at least one error, not the number of overall GraphQL
-          // queries that had at least one error for this field. That doesn't seem
-          // to match the name, but it does match the Go engineproxy implementation.
-          // (Well, actually the Go engineproxy implementation is even buggier because
-          // it counts errors multiple times if multiple resolvers have the same path.)
-          fieldStat.requestsWithErrorsCount +=
-            node.error && node.error.length > 0 ? 1 : 0;
-          fieldStat.latencyCount.incrementDuration(duration);
+          fieldStat = (typeStat.perFieldStat[node.originalFieldName] = new FieldStat(node.type));
         }
+
+        // We only create the object in the above line so we can know they aren't null
+        fieldStat.errorsCount = (node.error && node.error.length) || 0;
+        fieldStat.count++;
+        // Note: this is actually counting the number of resolver calls for this
+        // field that had at least one error, not the number of overall GraphQL
+        // queries that had at least one error for this field. That doesn't seem
+        // to match the name, but it does match the Go engineproxy implementation.
+        // (Well, actually the Go engineproxy implementation is even buggier because
+        // it counts errors multiple times if multiple resolvers have the same path.)
+        fieldStat.requestsWithErrorsCount +=
+            node.error && node.error.length > 0 ? 1 : 0;
+          fieldStat.latencyCount.incrementDuration(node.endTime - node.startTime);
       }
     }
 
