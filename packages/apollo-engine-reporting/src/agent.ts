@@ -32,7 +32,7 @@ import { reportingLoop, SchemaReporter } from './schemaReporter';
 import { v4 as uuidv4 } from 'uuid';
 import { createHash } from 'crypto';
 import { DurationHistogram } from './durationHistogram';
-import { ContextualizedStats} from "./contextualizedStats";
+import { ContextualizedStats } from './contextualizedStats';
 
 let warnedOnDeprecatedApiKey = false;
 
