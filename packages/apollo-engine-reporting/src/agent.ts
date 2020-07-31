@@ -32,7 +32,7 @@ import { reportingLoop, SchemaReporter } from './schemaReporter';
 import { v4 as uuidv4 } from 'uuid';
 import { createHash } from 'crypto';
 import { DurationHistogram } from './durationHistogram';
-import { ContextualizedStats } from './contextualizedStats';
+import { ContextualizedStats} from "./contextualizedStats";
 
 let warnedOnDeprecatedApiKey = false;
 
@@ -422,7 +422,7 @@ const serviceHeaderDefaults = {
 class ReportData {
   report!: Report;
   size!: number;
-  traceCache: Map<TraceCacheKey, boolean> = new Map<TraceCacheKey, boolean>();
+  traceCache: { [k: string]: Boolean } = Object.create(null);
   readonly header: ReportHeader;
   constructor(executableSchemaId: string, graphVariant: string) {
     this.header = new ReportHeader({
@@ -436,7 +436,7 @@ class ReportData {
   reset() {
     this.report = new Report({ header: this.header });
     this.size = 0;
-    this.traceCache = new Map<TraceCacheKey, boolean>();
+    this.traceCache = Object.create(null);
   }
 }
 
@@ -686,15 +686,14 @@ export class EngineReportingAgent<TContext = any> {
       ] as any).statsWithContext = new StatsMap();
     }
 
-    const traceCacheKey = {
+    const traceCacheKey = JSON.stringify({
       statsReportKey,
       statsBucket: DurationHistogram.durationToBucket(trace.durationNs),
       endsAtMinute:
         ((trace && trace.endTime && trace.endTime.seconds) || 0) % 60,
-    };
+    });
 
-    const convertTraceToStats =
-      reportData.traceCache.get(traceCacheKey) === true;
+    const convertTraceToStats = reportData.traceCache[traceCacheKey];
 
     if (convertTraceToStats) {
       (report.tracesPerQuery[statsReportKey] as any).statsWithContext.addTrace(
@@ -714,7 +713,7 @@ export class EngineReportingAgent<TContext = any> {
       );
       reportData.size +=
         encodedTrace.length + Buffer.byteLength(statsReportKey);
-      reportData.traceCache.set(traceCacheKey, true);
+      reportData.traceCache[traceCacheKey] = true;
     }
 
     // If the buffer gets big (according to our estimate), send.
